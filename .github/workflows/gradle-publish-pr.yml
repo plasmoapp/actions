@@ -189,7 +189,7 @@ jobs:
         if: steps.check-publish.outputs.result == 'true'
         uses: gradle/actions/setup-gradle@v5
 
-      - name: Publish to GitHub Packages
+      - name: Publish to Maven with Gradle
         if: steps.check-publish.outputs.result == 'true'
         run: ./gradlew ${{ inputs.gradle_publish_command }} -Pgroup=${{ inputs.artifact_group }} -Pversion=${{ steps.pr-details.outputs.result }}
 
