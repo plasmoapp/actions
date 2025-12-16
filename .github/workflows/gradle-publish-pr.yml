@@ -191,7 +191,7 @@ jobs:
 
       - name: Publish to GitHub Packages
         if: steps.check-publish.outputs.result == 'true'
-        run: ./gradlew ${{ inputs.gradle_publish_command }} -Pversion=${{ steps.pr-details.outputs.result }}
+        run: ./gradlew ${{ inputs.gradle_publish_command }} -Pgroup=${{ inputs.artifact_group }} -Pversion=${{ steps.pr-details.outputs.result }}
 
       - name: Update comment with publish info
         if: steps.check-publish.outputs.result == 'true' && success()
