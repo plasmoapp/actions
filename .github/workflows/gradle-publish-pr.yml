@@ -8,6 +8,10 @@ on:
         required: false
         type: string
         default: 'publishAllPublicationsToPlasmoverseSnapshotsRepository'
+      java_version:
+        required: false
+        type: string
+        default: '21'
       artifact_group:
         description: 'Artifact group'
         required: true
@@ -183,7 +187,7 @@ jobs:
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: 21
+          java-version: ${{ inputs.java_version }}
 
       - name: Setup Gradle
         if: steps.check-publish.outputs.result == 'true'
