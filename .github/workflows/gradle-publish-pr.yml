@@ -33,11 +33,11 @@ on:
         description: 'GitHub App Private Key'
         required: true
       maven_username:
+        description: 'Maven username'
         required: true
-        type: string
       maven_password:
+        description: 'Maven password'
         required: true
-        type: string
 
 jobs:
   create-comment:
