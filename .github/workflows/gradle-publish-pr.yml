@@ -32,6 +32,12 @@ on:
       app_private_key:
         description: 'GitHub App Private Key'
         required: true
+      maven_username:
+        required: true
+        type: string
+      maven_password:
+        required: true
+        type: string
 
 jobs:
   create-comment:
@@ -196,6 +202,9 @@ jobs:
       - name: Publish to Maven with Gradle
         if: steps.check-publish.outputs.result == 'true'
         run: ./gradlew ${{ inputs.gradle_publish_command }} -Pgroup=${{ inputs.artifact_group }} -Pversion=${{ steps.pr-details.outputs.result }}
+        env:
+          MAVEN_USERNAME: ${{ secrets.maven_username }}
+          MAVEN_PASSWORD: ${{ secrets.maven_password }}
 
       - name: Update comment with publish info
         if: steps.check-publish.outputs.result == 'true' && success()
