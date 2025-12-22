@@ -7,7 +7,7 @@ on:
         description: 'Gradle command to use for publish'
         required: false
         type: string
-        default: 'publishAllPublicationsToPlasmoverseSnapshotsRepository'
+        default: 'publishAllPublicationsToPlasmoversePrsRepository'
       java_version:
         required: false
         type: string
@@ -81,7 +81,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.payload.pull_request.number,
-              body: `- [ ] Publish to maven snapshots repository`
+              body: `- [ ] Publish to maven PRs repository`
             });
 
   publish:
@@ -111,7 +111,7 @@ jobs:
           script: |
             const comment = context.payload.comment;
             const isBotComment = comment.user.type === 'Bot' &&
-              comment.body.includes('Publish to maven snapshots repository');
+              comment.body.includes('Publish to maven PRs repository');
             return isBotComment;
 
       - name: Get PR number
@@ -155,7 +155,7 @@ jobs:
 
             const botComment = comments.find(comment =>
               comment.user.type === 'Bot' &&
-              comment.body.includes('Publish to maven snapshots repository')
+              comment.body.includes('Publish to maven PRs repository')
             );
 
             if (!botComment) {
@@ -163,7 +163,7 @@ jobs:
               return false;
             }
 
-            const isChecked = botComment.body.includes('- [x] Publish to maven snapshots repository');
+            const isChecked = botComment.body.includes('- [x] Publish to maven PRs repository');
             core.info(`Publish checkbox is ${isChecked ? 'checked' : 'unchecked'}`);
             return isChecked;
 
@@ -222,7 +222,7 @@ jobs:
 
             const botComment = comments.find(comment =>
               comment.user.type === 'Bot' &&
-              comment.body.includes('Publish to maven snapshots repository')
+              comment.body.includes('Publish to maven PRs repository')
             );
 
             if (botComment) {
@@ -232,7 +232,7 @@ jobs:
                 pull_number: prNumber,
               });
 
-              const commentBody = `- [x] Publish to maven snapshots repository
+              const commentBody = `- [x] Publish to maven PRs repository
 
             Last commit published: [${pr.head.sha.substring(0, 7)}](${pr.head.repo.html_url}/commit/${pr.head.sha})
 
