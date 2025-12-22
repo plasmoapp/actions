@@ -112,7 +112,8 @@ jobs:
             const comment = context.payload.comment;
             const isBotComment = comment.user.type === 'Bot' &&
               comment.body.includes('Publish to maven PRs repository');
-            return isBotComment;
+            const isPublished = comment.body.includes('Last commit published');
+            return isBotComment && !isPublished;
 
       - name: Get PR number
         if: |
