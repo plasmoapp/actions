@@ -1,0 +1,102 @@
+name: 'Upload to Project Registry'
+description: 'Push build artifacts to project registry and write a summary of upload links'
+
+inputs:
+  registry_url:
+    description: 'Registry base API URL (e.g. https://artifacts.example.com/api)'
+    required: true
+  upload_token:
+    description: 'Bearer token for the registry upload endpoint'
+    required: true
+  files_glob:
+    description: 'Files to upload'
+    required: false
+    default: 'build/libs/*'
+  project:
+    description: 'Project name in the registry'
+    required: false
+    default: ${{ github.event.repository.name }}
+  branch:
+    description: 'Branch name'
+    required: false
+    default: ${{ github.ref_name }}
+  commit:
+    description: 'Commit SHA'
+    required: false
+    default: ${{ github.sha }}
+  message:
+    description: 'Commit message'
+    required: false
+    default: ''
+  repo_url:
+    description: 'Repository URL shown in the registry UI'
+    required: false
+    default: ${{ github.server_url }}/${{ github.repository }}
+
+runs:
+  using: composite
+  steps:
+    - name: Upload to Registry
+      shell: bash
+      env:
+        REGISTRY_URL: ${{ inputs.registry_url }}
+        UPLOAD_TOKEN: ${{ inputs.upload_token }}
+        PROJECT: ${{ inputs.project }}
+        BRANCH: ${{ inputs.branch }}
+        COMMIT: ${{ inputs.commit }}
+        MESSAGE: ${{ inputs.message }}
+        REPO_URL: ${{ inputs.repo_url }}
+        FILES_GLOB: ${{ inputs.files_glob }}
+      run: |
+        short_sha="${COMMIT:0:7}"
+        web_url="${REGISTRY_URL%/api}"
+        web_url="${web_url%/}"
+        project_enc=$(jq -rn --arg s "$PROJECT" '$s|@uri')
+        branch_enc=$(jq -rn --arg s "$BRANCH" '$s|@uri')
+        commit_link="$web_url/projects/$project_enc/branches/$branch_enc/commits/$COMMIT"
+        {
+          echo "## Uploaded artifacts"
+          echo
+          echo "Commit: [\`$short_sha\`]($commit_link)"
+          echo
+          echo "| File | Link |"
+          echo "|------|------|"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        shopt -s nullglob
+        files=($FILES_GLOB)
+        if [ ${#files[@]} -eq 0 ]; then
+          echo "No files matched glob: $FILES_GLOB"
+          exit 1
+        fi
+
+        failed=0
+        for file in "${files[@]}"; do
+          [ -f "$file" ] || continue
+          name=$(basename "$file")
+          echo "Uploading $name..."
+
+          if response=$(curl -sS -X POST "$REGISTRY_URL/upload" \
+            -H "Authorization: Bearer $UPLOAD_TOKEN" \
+            -F "repoUrl=$REPO_URL" \
+            -F "project=$PROJECT" \
+            -F "branch=$BRANCH" \
+            -F "commit=$COMMIT" \
+            -F "message=$MESSAGE" \
+            -F "file=@$file" \
+            --retry 5 \
+            --retry-delay 2 \
+            --retry-all-errors \
+            --fail-with-body \
+            --show-error); then
+            url=$(jq -r '.[0].downloadUrl' <<< "$response")
+            echo "Uploaded $name -> $url"
+            echo "| \`$name\` | [download]($url) |" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Failed to upload $name"
+            echo "| \`$name\` | upload failed |" >> "$GITHUB_STEP_SUMMARY"
+            failed=1
+          fi
+        done
+
+        exit $failed
