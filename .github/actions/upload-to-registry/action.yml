@@ -48,6 +48,9 @@ runs:
         REPO_URL: ${{ inputs.repo_url }}
         FILES_GLOB: ${{ inputs.files_glob }}
       run: |
+        if [[ "$BRANCH" =~ ^([0-9]+)/merge$ ]]; then
+          BRANCH="pr-${BASH_REMATCH[1]}"
+        fi
         short_sha="${COMMIT:0:7}"
         web_url="${REGISTRY_URL%/api}"
         web_url="${web_url%/}"
