@@ -66,6 +66,24 @@ runs:
           echo "|------|------|"
         } >> "$GITHUB_STEP_SUMMARY"
 
+        commit_api="$REGISTRY_URL/projects/$project_enc/branches/$branch_enc/commits/$COMMIT"
+
+        # CF doesn't receive response from backend and timeouts with 524,
+        # even though file uploads fine and backend returns 201
+        # so instead of relying on CF response, we're checking API for an actual file
+        verify_uploaded() {
+          local want="$1" body url attempt
+          for attempt in 1 2 3; do
+            [ "$attempt" -gt 1 ] && sleep 5
+            body=$(curl -sS --connect-timeout 15 --max-time 30 "$commit_api" 2>/dev/null) || continue
+            url=$(jq -er --arg n "$want" \
+              '[.artifacts[]? | select(.filename == $n) | .downloadUrl] | .[0] // empty' \
+              <<< "$body" 2>/dev/null) || continue
+            [ -n "$url" ] && { printf '%s' "$url"; return 0; }
+          done
+          return 1
+        }
+
         shopt -s nullglob
         files=($FILES_GLOB)
         if [ ${#files[@]} -eq 0 ]; then
@@ -74,12 +92,13 @@ runs:
         fi
 
         failed=0
+        response_body=$(mktemp)
         for file in "${files[@]}"; do
           [ -f "$file" ] || continue
           name=$(basename "$file")
           echo "Uploading $name..."
 
-          if response=$(curl -sS -X POST "$REGISTRY_URL/upload" \
+          http=$(curl -sS -X POST "$REGISTRY_URL/upload" \
             -H "Authorization: Bearer $UPLOAD_TOKEN" \
             -F "repoUrl=$REPO_URL" \
             -F "project=$PROJECT" \
@@ -87,18 +106,25 @@ runs:
             -F "commit=$COMMIT" \
             -F "message=$MESSAGE" \
             -F "file=@$file" \
+            --connect-timeout 30 \
             --retry 5 \
-            --retry-all-errors \
-            --fail-with-body \
-            --show-error); then
-            url=$(jq -r '.[0].downloadUrl' <<< "$response")
+            --show-error \
+            -o "$response_body" \
+            -w '%{http_code}') || http="000"
+
+          if [ "$http" = "200" ] && url=$(jq -er '.[0].downloadUrl' < "$response_body" 2>/dev/null); then
             echo "Uploaded $name -> $url"
             echo "| \`$name\` | [download]($url) |" >> "$GITHUB_STEP_SUMMARY"
+          elif url=$(verify_uploaded "$name"); then
+            echo "Upload got http=$http, but $name is registered for this commit -> $url"
+            echo "| \`$name\` | [download]($url) (verified) |" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "Failed to upload $name"
-            echo "| \`$name\` | upload failed |" >> "$GITHUB_STEP_SUMMARY"
+            echo "Failed to upload $name (http=$http)"
+            head -c 500 "$response_body"; echo
+            echo "| \`$name\` | upload failed (http=$http) |" >> "$GITHUB_STEP_SUMMARY"
             failed=1
           fi
         done
+        rm -f "$response_body"
 
         exit $failed
