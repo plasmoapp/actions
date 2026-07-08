@@ -88,7 +88,6 @@ runs:
             -F "message=$MESSAGE" \
             -F "file=@$file" \
             --retry 5 \
-            --retry-delay 2 \
             --retry-all-errors \
             --fail-with-body \
             --show-error); then
