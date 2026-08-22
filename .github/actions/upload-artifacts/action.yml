@@ -1,0 +1,155 @@
+name: 'Upload Files as Artifacts'
+description: 'Upload every matched file as its own workflow artifact'
+
+inputs:
+  files_glob:
+    description: 'Files to upload, one artifact per file'
+    required: false
+    default: 'build/libs/*'
+  archive:
+    description: 'Zip every file before upload. When false the file is uploaded raw and keeps its name, permissions and mime type'
+    required: false
+    default: 'false'
+  compression_level:
+    description: 'Zlib compression level from 0 to 9, only used when archive is true'
+    required: false
+    default: '6'
+  retention_days:
+    description: 'Days to keep the artifacts, empty for the repository default'
+    required: false
+    default: ''
+  if_no_files_found:
+    description: 'What to do when the glob matches nothing: warn, error or ignore'
+    required: false
+    default: 'warn'
+  summary:
+    description: 'Write a table of uploaded artifacts to the job summary'
+    required: false
+    default: 'true'
+  toolkit_version:
+    description: 'Version of the @actions/artifact npm package to install'
+    required: false
+    default: '6.2.1'
+
+outputs:
+  artifacts:
+    description: 'JSON array of uploaded artifacts with name, id, size and url'
+    value: ${{ steps.upload.outputs.artifacts }}
+  count:
+    description: 'Number of uploaded artifacts'
+    value: ${{ steps.upload.outputs.count }}
+
+runs:
+  using: composite
+  steps:
+    - name: Collect Files
+      id: collect
+      shell: bash
+      env:
+        FILES_GLOB: ${{ inputs.files_glob }}
+        IF_NO_FILES_FOUND: ${{ inputs.if_no_files_found }}
+      run: |
+        list="$RUNNER_TEMP/upload-artifacts-files.txt"
+        : > "$list"
+
+        shopt -s nullglob
+        files=($FILES_GLOB)
+        for file in "${files[@]}"; do
+          [ -f "$file" ] || continue
+          printf '%s\n' "$file" >> "$list"
+        done
+
+        count=$(wc -l < "$list")
+        if [ "$count" -eq 0 ]; then
+          case "$IF_NO_FILES_FOUND" in
+            error)
+              echo "No files matched glob: $FILES_GLOB" >&2
+              exit 1
+              ;;
+            ignore)
+              ;;
+            *)
+              echo "::warning::No files matched glob: $FILES_GLOB"
+              ;;
+          esac
+        fi
+
+        echo "Matched $count file(s) for upload"
+        echo "count=$count" >> "$GITHUB_OUTPUT"
+        echo "list=$list" >> "$GITHUB_OUTPUT"
+
+    - name: Install Artifact Toolkit
+      if: steps.collect.outputs.count != '0'
+      shell: bash
+      env:
+        TOOLKIT_VERSION: ${{ inputs.toolkit_version }}
+      run: |
+        prefix="$RUNNER_TEMP/upload-artifacts-toolkit"
+        npm install --prefix "$prefix" --no-fund --no-audit --no-package-lock "@actions/artifact@$TOOLKIT_VERSION"
+        echo "ARTIFACT_LIB=$prefix/node_modules/@actions/artifact/lib/artifact.js" >> "$GITHUB_ENV"
+
+    - name: Upload Artifacts
+      id: upload
+      if: steps.collect.outputs.count != '0'
+      uses: actions/github-script@v9
+      env:
+        FILES_LIST: ${{ steps.collect.outputs.list }}
+        ARCHIVE: ${{ inputs.archive }}
+        COMPRESSION_LEVEL: ${{ inputs.compression_level }}
+        RETENTION_DAYS: ${{ inputs.retention_days }}
+        SUMMARY: ${{ inputs.summary }}
+      with:
+        script: |
+          const fs = await import('node:fs')
+          const path = await import('node:path')
+          const { DefaultArtifactClient } = await import(process.env.ARTIFACT_LIB)
+
+          const formatSize = bytes => {
+            const units = ['B', 'KiB', 'MiB', 'GiB']
+            let size = bytes
+            let unit = 0
+            while (size >= 1024 && unit < units.length - 1) {
+              size /= 1024
+              unit++
+            }
+            return `${unit === 0 ? size : size.toFixed(1)} ${units[unit]}`
+          }
+
+          const skipArchive = process.env.ARCHIVE !== 'true'
+          const options = { skipArchive }
+          if (!skipArchive) {
+            options.compressionLevel = Number(process.env.COMPRESSION_LEVEL)
+          }
+          if (process.env.RETENTION_DAYS) {
+            options.retentionDays = Number(process.env.RETENTION_DAYS)
+          }
+
+          const client = new DefaultArtifactClient()
+          const files = fs.readFileSync(process.env.FILES_LIST, 'utf8').split('\n').filter(Boolean)
+          const runUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${context.runId}`
+          const uploaded = []
+
+          for (const file of files) {
+            const name = path.basename(file)
+            const { id, size } = await client.uploadArtifact(name, [file], path.dirname(file), options)
+            uploaded.push({ name, id, size, url: `${runUrl}/artifacts/${id}` })
+          }
+
+          core.setOutput('artifacts', JSON.stringify(uploaded))
+          core.setOutput('count', uploaded.length)
+
+          if (process.env.SUMMARY === 'true') {
+            const rows = uploaded.map(artifact =>
+              `| \`${artifact.name}\` | ${formatSize(artifact.size)} | [download](${artifact.url}) |`
+            )
+            await core.summary
+              .addRaw([
+                '## Uploaded artifacts',
+                '',
+                '| File | Size | Link |',
+                '|------|------|------|',
+                ...rows,
+                ''
+              ].join('\n'))
+              .write()
+          }
