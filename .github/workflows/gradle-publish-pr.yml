@@ -20,6 +20,11 @@ on:
         description: 'Artifact id'
         required: true
         type: string
+      repo_url:
+        description: 'Maven repo URL'
+        required: false
+        type: string
+        default: 'https://repo.plasmoverse.com/prs'
       build_workflow_name:
         description: 'Name of the build workflow to wait for'
         required: false
@@ -239,7 +244,7 @@ jobs:
 
             \`\`\`kotlin
             repositories {
-                maven("https://repo.plasmoverse.com/snapshots")
+                maven("${{ inputs.repo_url }}")
             }
             
             dependencies {
